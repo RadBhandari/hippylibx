@@ -319,6 +319,16 @@ class Model:
         """
         return self.prior.Rsolver
 
+    def Psolver(self) -> Any:
+        """
+        Return an object :code:`Rsovler` that is a suitable solver for the regularization
+        operator :math:`R`.
+
+        The solver object should implement the method :code:`Rsolver.solve(z,r)` such that
+        :math: `Rz approx r`
+        """
+        return self.prior.Psolver
+
     def applyWmm(self, dm: dlx.la.Vector, out: dlx.la.Vector) -> None:
         """
         Apply the :math:`W_{mm}` block of the Hessian to a (incremental) parameter variable.
