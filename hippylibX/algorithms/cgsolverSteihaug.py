@@ -269,7 +269,9 @@ class CGSolverSteihaug:
             self.B_solver.solve(self.r, self.z)  # z = B^-1 r
 
             betanom = self.r.dot(self.z)
-
+            if self.parameters["print_level"] == 1:
+                print(" Iteration : ", self.iter, " (B r, r) = ", betanom)
+                
             if betanom < r0:
                 self.converged = True
                 self.reasonid = 1
