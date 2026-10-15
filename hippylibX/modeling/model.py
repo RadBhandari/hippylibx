@@ -322,7 +322,6 @@ class Model:
     def Psolver(self) -> Any:
         """
         Return an object :code:`Psolver` that is a suitable preconditioner for the reduced Hessian in the inverse problem.
-        operator :math:`R`.
 
         The solver object should implement the method :code:`Rsolver.solve(z,r)` such that
         :math: `Rz approx r`
