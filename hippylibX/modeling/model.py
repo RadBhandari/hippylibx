@@ -324,7 +324,6 @@ class Model:
         Return an object :code:`Psolver` that is a suitable preconditioner for the reduced Hessian in the inverse problem.
 
         The preconditioner object should implement the method :code:`Psolver.solve(z,r)` 
-        :math: `Rz approx r`
         """
         return self.prior.Psolver
 
