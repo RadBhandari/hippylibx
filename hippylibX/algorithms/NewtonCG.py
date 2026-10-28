@@ -8,6 +8,7 @@
 # --------------------------------------------------------------------------ec-
 
 import math
+import os
 import dolfinx as dlx
 import numpy as np
 
@@ -16,6 +17,47 @@ from ..modeling.reducedHessian import ReducedHessian
 from ..modeling.variables import STATE, PARAMETER, ADJOINT
 from .cgsolverSteihaug import CGSolverSteihaug
 from ..algorithms.linalg import inner
+
+
+class CheckpointCallback:
+    """
+    Concrete callback implementation for saving checkpoints during Newton iterations.
+
+    Interface:
+        callback(it, x, **kwargs)
+
+    where:
+        it   : current Newton iteration index
+        x    : current iterate, e.g. [u, m, p]
+        kwargs: optional diagnostics such as cost, misfit, reg, gradnorm, alpha, cg_it, etc.
+
+    The callback converts vectors to dolfinx.Function objects internally if needed.
+    """
+
+    def __init__(self, model, output_dir, save_every=1):
+        self.model = model
+        self.output_dir = output_dir
+        self.save_every = save_every
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def _as_function(self, vec, Vh):
+        if vec is None:
+            return None
+        func = dlx.fem.Function(Vh)
+        func.x.array[:] = vec.array
+        func.x.scatter_forward()
+        return func
+
+    def __call__(self, it, x, **kwargs):
+        if it % self.save_every != 0:
+            return
+
+        u = self._as_function(x[STATE], self.model.Vh_u)
+        m = self._as_function(x[PARAMETER], self.model.prior.Vh)
+        p = self._as_function(x[ADJOINT], self.model.Vh_p)
+
+        checkpoint_file = os.path.join(self.output_dir, f"checkpoint_it{it}.h5")
+        print(f"Saved checkpoint at iteration {it}: {checkpoint_file}")
 
 
 def LS_ParameterList():
@@ -141,9 +183,10 @@ class ReducedSpaceNewtonCG:
         Parameters:
         :code:`model` The model object that describes the inverse problem
         :code:`parameters`: (type :code:`ParameterList`, optional) set parameters for inexact Newton CG
-        :code:`callback`: (type function handler with signature :code:`callback(it: int, x: list of dl.Vector): --> None`
-               optional callback function to be called at the end of each iteration. Takes as input the iteration number, and
-               the list of vectors for the state, parameter, adjoint.
+        :code:`callback`: (type callable with signature :code:`callback(it: int, x: list, **kwargs) -> None`)
+                optional callback function to be called at the end of each iteration. The current iterate is passed as
+                :code:`x = [u, m, p]` and additional diagnostics are sent as keyword arguments.
+                Converting vectors to :code:`dolfinx.Function` objects should happen inside the callback implementation.
         """
         self.model = model
         self.parameters = parameters
@@ -231,7 +274,6 @@ class ReducedSpaceNewtonCG:
                 gradnorm_ini = gradnorm
                 tol = max(abs_tol, gradnorm_ini * rel_tol)
 
-            # check if solution is reached
             if (gradnorm < tol) and (self.it > 0):
                 self.converged = True
                 self.reason = 1
@@ -260,7 +302,6 @@ class ReducedSpaceNewtonCG:
 
             while descent == 0 and n_backtrack < max_backtracking_iter:
                 x_star[PARAMETER].array[:] = x[PARAMETER].array - alpha * mhat.array
-
                 x_star[PARAMETER].scatter_forward()
                 x_star[STATE].array[:] = x[STATE].array
                 x_star[STATE].scatter_forward()
@@ -268,9 +309,8 @@ class ReducedSpaceNewtonCG:
                 self.model.solveFwd(x_star[STATE], x_star)
 
                 cost_new, reg_new, misfit_new = self.model.cost(x_star)
-                # Check if armijo conditions are satisfied
                 if (cost_new < cost_old - alpha * c_armijo * mg_mhat) or \
-                (mg_mhat <= self.parameters["gdm_tolerance"]):
+                   (mg_mhat <= self.parameters["gdm_tolerance"]):
                     cost_old = cost_new
                     descent = 1
                     x[PARAMETER].array[:] = x_star[PARAMETER].array
@@ -318,26 +358,23 @@ class ReducedSpaceNewtonCG:
                         tolcg,
                     )
                 )
-            if self.callback:
-                m_func = self.model.problem.xfun[PARAMETER]
-                m_func.x.array[:] = x[PARAMETER].array
-                m_func.x.scatter_forward()
 
-                self.callback({
-                    "it" : self.it,
-                    "cg_it": HessApply.ncalls,
-                    "cost": cost_new,
-                    "misfit": misfit_new,
-                    "reg": reg_new,
-                    "gdm": mg_mhat,
-                    "gradnorm": gradnorm,
-                    "alpha": alpha,
-                    "tolcg": tolcg,
-                    "fwd_solve" : self.model.n_fwd_solve,
-                    "adj_solve" : self.model.n_adj_solve,
-                    "inc_solve" : self.model.n_inc_solve,
-                    "m" : m_func,
-                })
+            if self.callback:
+                self.callback(
+                    self.it,
+                    x,
+                    cg_it=HessApply.ncalls,
+                    cost=cost_new,
+                    misfit=misfit_new,
+                    reg=reg_new,
+                    gdm=mg_mhat,
+                    gradnorm=gradnorm,
+                    alpha=alpha,
+                    tolcg=tolcg,
+                    fwd_solve=self.model.n_fwd_solve,
+                    adj_solve=self.model.n_adj_solve,
+                    inc_solve=self.model.n_inc_solve,
+                )
 
         self.final_grad_norm = gradnorm
         self.final_cost = cost_new
@@ -378,7 +415,6 @@ class ReducedSpaceNewtonCG:
 
         wfun = self.model.prior.wfun
         dw = dlx.fem.Function(self.model.prior.Vh_w)
-        norm_w = dlx.fem.Function(self.model.prior.Vh_wnorm)
         mfun = dlx.fem.Function(self.model.prior.Vh)
         mhat_fun = dlx.fem.Function(self.model.prior.Vh)
 
@@ -403,7 +439,6 @@ class ReducedSpaceNewtonCG:
                 gradnorm_ini = gradnorm
                 tol = max(abs_tol, gradnorm_ini * rel_tol)
 
-            # check if solution is reached
             if (gradnorm < tol) and (self.it > 0):
                 self.converged = True
                 self.reason = 1
@@ -437,9 +472,8 @@ class ReducedSpaceNewtonCG:
                 self.model.solveFwd(x_star[STATE], x_star)
 
                 cost_new, reg_new, misfit_new = self.model.cost(x_star)
-                # Check if armijo conditions are satisfied
                 if (cost_new < cost_old + alpha * c_armijo * mg_mhat) or \
-                (-mg_mhat <= self.parameters["gdm_tolerance"]):
+                   (-mg_mhat <= self.parameters["gdm_tolerance"]):
                     cost_old = cost_new
                     descent = 1
                     x[PARAMETER].array[:] = x_star[PARAMETER].array
@@ -488,26 +522,23 @@ class ReducedSpaceNewtonCG:
                         tolcg,
                     )
                 )
-            if self.callback:
-                m_func = self.model.problem.xfun[PARAMETER]
-                m_func.x.array[:] = x[PARAMETER].array
-                m_func.x.scatter_forward()
 
-                self.callback({
-                    "it" : self.it,
-                    "cg_it": HessApply.ncalls,
-                    "cost": cost_new,
-                    "misfit": misfit_new,
-                    "reg": reg_new,
-                    "gdm": mg_mhat,
-                    "gradnorm": gradnorm,
-                    "alpha": alpha,
-                    "tolcg": tolcg,
-                    "fwd_solve" : self.model.n_fwd_solve,
-                    "adj_solve" : self.model.n_adj_solve,
-                    "inc_solve" : self.model.n_inc_solve,
-                    "m" : m_func,
-                })
+            if self.callback:
+                self.callback(
+                    self.it,
+                    x,
+                    cg_it=HessApply.ncalls,
+                    cost=cost_new,
+                    misfit=misfit_new,
+                    reg=reg_new,
+                    gdm=mg_mhat,
+                    gradnorm=gradnorm,
+                    alpha=alpha,
+                    tolcg=tolcg,
+                    fwd_solve=self.model.n_fwd_solve,
+                    adj_solve=self.model.n_adj_solve,
+                    inc_solve=self.model.n_inc_solve,
+                )
 
             alpha_w = 1.0
             descent_w = 0
@@ -529,7 +560,6 @@ class ReducedSpaceNewtonCG:
                 temp_fun.x.petsc_vec.waxpy(alpha_w, dw.x.petsc_vec, wfun.x.petsc_vec)
                 temp_fun.x.scatter_forward()
 
-                # The below code essentially avoids doing projection and hence optimising computation time
                 bs = temp_fun.function_space.dofmap.index_map_bs
                 values = temp_fun.x.array.reshape(-1, bs)
                 local_norm_w_max = np.linalg.norm(values, axis=1).max(initial=0.0)
@@ -606,14 +636,12 @@ class ReducedSpaceNewtonCG:
                 gradnorm_ini = gradnorm
                 tol = max(abs_tol, gradnorm_ini * rel_tol)
 
-            # check if solution is reached
             if (gradnorm < tol) and (self.it > 0):
                 self.converged = True
                 self.reason = 1
                 break
 
             self.it += 1
-
             tolcg = min(cg_coarse_tolerance, math.sqrt(gradnorm / gradnorm_ini))
 
             HessApply.gauss_newton_approx = (self.it <= GN_iter)
@@ -627,7 +655,6 @@ class ReducedSpaceNewtonCG:
                 solver.set_TR(delta_TR, self.model.prior.R)
             solver.parameters["rel_tolerance"] = tolcg
 
-            # solver.solve(mhat, -mg)
             solver.solve(-mg, mhat)
             self.total_cg_iter += HessApply.ncalls
             if self.it == 1:
@@ -639,21 +666,17 @@ class ReducedSpaceNewtonCG:
             self.model.solveFwd(x_star[STATE], x_star)
             cost_star, reg_star, misfit_star = self.model.cost(x_star)
             ACTUAL_RED = cost_old - cost_star
-            # Calculate Predicted Reduction
             H_mhat = self.model.generate_vector(PARAMETER)
             H_mhat.array[:] = 0.0
             HessApply.mat.mult(mhat, H_mhat)
             mg_mhat = mg.inner(mhat)
             PRED_RED = -0.5 * mhat.inner(H_mhat) - mg_mhat
-            # print( "PREDICTED REDUCTION", PRED_RED, "ACTUAL REDUCTION", ACTUAL_RED)
             rho_TR = ACTUAL_RED / PRED_RED
-            # Nocedal and Wright Trust Region conditions (page 69)
             if rho_TR < 0.25:
                 delta_TR *= 0.5
             elif rho_TR > 0.75 and solver.reasonid == 3:
                 delta_TR *= 2.0
 
-            # print( "rho_TR", rho_TR, "eta_TR", eta_TR, "rho_TR > eta_TR?", rho_TR > eta_TR , "\n")
             if rho_TR > eta_TR:
                 x[PARAMETER].array[:] = x_star[PARAMETER].array
                 x[STATE].array[:] = x_star[STATE].array
@@ -663,6 +686,23 @@ class ReducedSpaceNewtonCG:
                 accept_step = True
             else:
                 accept_step = False
+
+            if self.callback:
+                self.callback(
+                    self.it,
+                    x,
+                    cg_it=HessApply.ncalls,
+                    cost=cost_old,
+                    misfit=misfit_old,
+                    reg=reg_old,
+                    gdm=mg_mhat,
+                    gradnorm=gradnorm,
+                    alpha=1.0,
+                    tolcg=tolcg,
+                    fwd_solve=self.model.n_fwd_solve,
+                    adj_solve=self.model.n_adj_solve,
+                    inc_solve=self.model.n_inc_solve,
+                )
 
             if (print_level >= 0) and (self.it == 1):
                 print(
@@ -698,7 +738,6 @@ class ReducedSpaceNewtonCG:
                     )
                 )
 
-            # TR radius can make this term arbitrarily small and prematurely exit.
             if -mg_mhat <= self.parameters["gdm_tolerance"]:
                 self.converged = True
                 self.reason = 3
