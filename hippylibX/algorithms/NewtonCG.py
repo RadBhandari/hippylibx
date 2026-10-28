@@ -310,7 +310,7 @@ class ReducedSpaceNewtonCG:
                     )
                 )
 
-            if print_level >= 0 :
+            if print_level >= 0:
                 print(
                     "{0:3d} {1:3d} {2:15e} {3:15e} {4:15e} {5:15e} {6:14e} {7:14e} {8:14e}".format(
                         self.it,
