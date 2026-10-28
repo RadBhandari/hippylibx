@@ -8,7 +8,6 @@
 # --------------------------------------------------------------------------ec-
 
 import math
-from mpi4py import MPI
 import dolfinx as dlx
 import numpy as np
 
@@ -131,9 +130,6 @@ class ReducedSpaceNewtonCG:
         "Maximum backtracking reached for w",         # 4
     ]
 
-    comm = MPI.COMM_WORLD
-    rank = comm.rank
-
     def __init__(
         self, model, parameters=ReducedSpaceNewtonCG_ParameterList(), callback=None
     ):
@@ -199,7 +195,7 @@ class ReducedSpaceNewtonCG:
 
         c_armijo = self.parameters["LS"]["c_armijo"]
         max_backtracking_iter = self.parameters["LS"]["max_backtracking_iter"]
-        
+
         self.model.solveFwd(x[STATE], x)
         self.it = 0
         self.converged = False
@@ -217,7 +213,7 @@ class ReducedSpaceNewtonCG:
         HessApply = ReducedHessian(self.model)
         solver = CGSolverSteihaug(comm=self.model.prior.Vh.mesh.comm)
         solver.set_operator(HessApply.mat)
-        
+
         solver.parameters["max_iter"] = cg_max_iter
         solver.parameters["zero_initial_guess"] = True
         solver.parameters["print_level"] = print_level - 1
@@ -243,7 +239,7 @@ class ReducedSpaceNewtonCG:
 
             self.it += 1
             tolcg = min(cg_coarse_tolerance, math.sqrt(gradnorm / gradnorm_ini))
-            
+
             HessApply.gauss_newton_approx = (self.it <= GN_iter)
             HessApply.ncalls = 0
 
@@ -282,7 +278,7 @@ class ReducedSpaceNewtonCG:
                 else:
                     n_backtrack += 1
                     alpha *= 0.5
-            
+
             if n_backtrack == max_backtracking_iter:
                 self.converged = False
                 self.reason = 2
@@ -293,7 +289,7 @@ class ReducedSpaceNewtonCG:
                 self.reason = 3
                 break
 
-            if (print_level >= 0) and (self.it == 1) :
+            if (print_level >= 0) and (self.it == 1):
                 print(
                     "\n{0:3} {1:3} {2:15} {3:15} {4:15} {5:15} {6:14} {7:14} {8:14}".format(
                         "It",
@@ -349,7 +345,7 @@ class ReducedSpaceNewtonCG:
         solver.destroy()
 
         return x
-    
+
     def _solve_ls_PDTV(self, x: list) -> list:
         """
         Solve the constrained optimization problem with initial guess :code:`x`.
@@ -364,7 +360,6 @@ class ReducedSpaceNewtonCG:
 
         c_armijo = self.parameters["LS"]["c_armijo"]
         max_backtracking_iter = self.parameters["LS"]["max_backtracking_iter"]
-
 
         self.model.solveFwd(x[STATE], x)
         self.it = 0
@@ -381,10 +376,10 @@ class ReducedSpaceNewtonCG:
 
         cost_old, _, _ = self.model.cost(x)
 
-        wfun = self.model.prior.wfun 
-        dw       = dlx.fem.Function(self.model.prior.Vh_w)
-        norm_w   = dlx.fem.Function(self.model.prior.Vh_wnorm)
-        mfun    = dlx.fem.Function(self.model.prior.Vh)
+        wfun = self.model.prior.wfun
+        dw = dlx.fem.Function(self.model.prior.Vh_w)
+        norm_w = dlx.fem.Function(self.model.prior.Vh_wnorm)
+        mfun = dlx.fem.Function(self.model.prior.Vh)
         mhat_fun = dlx.fem.Function(self.model.prior.Vh)
 
         HessApply = ReducedHessian(self.model)
@@ -424,7 +419,7 @@ class ReducedSpaceNewtonCG:
             else:
                 solver.set_preconditioner(self.model.Rsolver())
             solver.parameters["rel_tolerance"] = tolcg
-            
+
             mg_neg.array[:] = -mg.array[:]
             solver.solve(mg_neg, mhat)
             self.total_cg_iter += HessApply.ncalls
@@ -433,13 +428,10 @@ class ReducedSpaceNewtonCG:
             n_backtrack = 0
             mg_mhat = inner(mg, mhat)
 
-            
-
-            
             while descent == 0 and n_backtrack < max_backtracking_iter:
                 x_star[PARAMETER].array[:] = x[PARAMETER].array + alpha * mhat.array
                 x_star[PARAMETER].scatter_forward()
-                x_star[STATE].array[:]     = x[STATE].array
+                x_star[STATE].array[:] = x[STATE].array
                 x_star[STATE].scatter_forward()
 
                 self.model.solveFwd(x_star[STATE], x_star)
@@ -452,7 +444,7 @@ class ReducedSpaceNewtonCG:
                     descent = 1
                     x[PARAMETER].array[:] = x_star[PARAMETER].array
                     x[PARAMETER].scatter_forward()
-                    x[STATE].array[:]     = x_star[STATE].array
+                    x[STATE].array[:] = x_star[STATE].array
                     x[STATE].scatter_forward()
                 else:
                     n_backtrack += 1
@@ -467,7 +459,7 @@ class ReducedSpaceNewtonCG:
                 self.reason = 3
                 break
 
-            if (print_level >= 0) and (self.it == 1) :
+            if (print_level >= 0) and (self.it == 1):
                 print(
                     "\n{0:3} {1:3} {2:15} {3:15} {4:15} {5:15} {6:14} {7:14} {8:14}".format(
                         "It",
@@ -482,7 +474,7 @@ class ReducedSpaceNewtonCG:
                     )
                 )
 
-            if print_level >= 0 :
+            if print_level >= 0:
                 print(
                     "{0:3d} {1:3d} {2:15e} {3:15e} {4:15e} {5:15e} {6:14e} {7:14e} {8:14e}".format(
                         self.it,
@@ -497,7 +489,6 @@ class ReducedSpaceNewtonCG:
                     )
                 )
             if self.callback:
-                
                 m_func = self.model.problem.xfun[PARAMETER]
                 m_func.x.array[:] = x[PARAMETER].array
                 m_func.x.scatter_forward()
@@ -517,33 +508,32 @@ class ReducedSpaceNewtonCG:
                     "inc_solve" : self.model.n_inc_solve,
                     "m" : m_func,
                 })
-            
+
             alpha_w = 1.0
             descent_w = 0
             n_backtrack_w = 0
-            
-            mfun.x.array[:] = x[PARAMETER].array 
+
+            mfun.x.array[:] = x[PARAMETER].array
             mfun.x.scatter_forward()
 
             mhat_fun.x.array[:] = mhat.array
             mhat_fun.x.scatter_forward()
-            
+
             self.model.prior.w_hat(mfun, wfun, mhat_fun, dw)
             dw.x.scatter_forward()
-            
+
             temp_fun = dlx.fem.Function(self.model.prior.Vh_w)
 
             while descent_w == 0 and n_backtrack_w < max_backtracking_iter:
-
-                comm = MPI.COMM_WORLD
-                temp_fun.x.petsc_vec.waxpy(alpha_w,dw.x.petsc_vec,wfun.x.petsc_vec)
+                comm = self.model.prior.Vh_w.mesh.comm
+                temp_fun.x.petsc_vec.waxpy(alpha_w, dw.x.petsc_vec, wfun.x.petsc_vec)
                 temp_fun.x.scatter_forward()
 
                 # The below code essentially avoids doing projection and hence optimising computation time
                 bs = temp_fun.function_space.dofmap.index_map_bs
                 values = temp_fun.x.array.reshape(-1, bs)
-                local_norm_w_max = np.linalg.norm(values,axis=1).max(initial=0.0)
-                global_norm_w_max = comm.allreduce(local_norm_w_max,op=MPI.MAX)
+                local_norm_w_max = np.linalg.norm(values, axis=1).max(initial=0.0)
+                global_norm_w_max = comm.allreduce(local_norm_w_max, op=dlx.MPI.MAX)
 
                 if global_norm_w_max <= 1:
                     descent_w = 1
@@ -552,7 +542,7 @@ class ReducedSpaceNewtonCG:
                 else:
                     n_backtrack_w += 1
                     alpha_w *= 0.5
-        
+
             if n_backtrack_w == max_backtracking_iter:
                 self.converged = False
                 self.reason = 4
@@ -628,7 +618,7 @@ class ReducedSpaceNewtonCG:
 
             HessApply.gauss_newton_approx = (self.it <= GN_iter)
             HessApply.ncalls = 0
-            
+
             if hasattr(self.model.prior, "Psolver"):
                 solver.set_preconditioner(self.model.Psolver())
             else:
@@ -636,7 +626,6 @@ class ReducedSpaceNewtonCG:
             if self.it > 1:
                 solver.set_TR(delta_TR, self.model.prior.R)
             solver.parameters["rel_tolerance"] = tolcg
-            
 
             # solver.solve(mhat, -mg)
             solver.solve(-mg, mhat)
