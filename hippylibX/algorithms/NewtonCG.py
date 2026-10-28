@@ -207,7 +207,6 @@ class ReducedSpaceNewtonCG:
 
         mhat = self.model.generate_vector(PARAMETER)
         mg = self.model.generate_vector(PARAMETER)
-        mg_neg = self.model.generate_vector(PARAMETER)
 
         x_star = [None, None, None] + x[3::]
         x_star[STATE] = self.model.generate_vector(STATE)
