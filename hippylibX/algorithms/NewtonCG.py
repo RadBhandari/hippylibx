@@ -249,7 +249,7 @@ class ReducedSpaceNewtonCG:
             else:
                 solver.set_preconditioner(self.model.Rsolver())
 
-            solver.solve(mg_neg, mhat)
+            solver.solve(mg, mhat)
             self.total_cg_iter += HessApply.ncalls
 
             alpha = 1.0
