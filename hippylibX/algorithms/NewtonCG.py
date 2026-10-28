@@ -265,7 +265,7 @@ class ReducedSpaceNewtonCG:
             mg_mhat = inner(mg, mhat)
 
             while descent == 0 and n_backtrack < max_backtracking_iter:
-                x_star[PARAMETER].array[:] = x[PARAMETER].array + alpha * mhat.array
+                x_star[PARAMETER].array[:] = x[PARAMETER].array - alpha * mhat.array
 
                 x_star[PARAMETER].scatter_forward()
                 x_star[STATE].array[:] = x[STATE].array
