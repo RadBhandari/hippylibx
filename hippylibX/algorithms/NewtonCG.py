@@ -8,7 +8,7 @@
 # --------------------------------------------------------------------------ec-
 
 import math
-import os
+from mpi4py import MPI
 import dolfinx as dlx
 import numpy as np
 
@@ -17,47 +17,6 @@ from ..modeling.reducedHessian import ReducedHessian
 from ..modeling.variables import STATE, PARAMETER, ADJOINT
 from .cgsolverSteihaug import CGSolverSteihaug
 from ..algorithms.linalg import inner
-
-
-class CheckpointCallback:
-    """
-    Concrete callback implementation for saving checkpoints during Newton iterations.
-
-    Interface:
-        callback(it, x, **kwargs)
-
-    where:
-        it   : current Newton iteration index
-        x    : current iterate, e.g. [u, m, p]
-        kwargs: optional diagnostics such as cost, misfit, reg, gradnorm, alpha, cg_it, etc.
-
-    The callback converts vectors to dolfinx.Function objects internally if needed.
-    """
-
-    def __init__(self, model, output_dir, save_every=1):
-        self.model = model
-        self.output_dir = output_dir
-        self.save_every = save_every
-        os.makedirs(self.output_dir, exist_ok=True)
-
-    def _as_function(self, vec, Vh):
-        if vec is None:
-            return None
-        func = dlx.fem.Function(Vh)
-        func.x.array[:] = vec.array
-        func.x.scatter_forward()
-        return func
-
-    def __call__(self, it, x, **kwargs):
-        if it % self.save_every != 0:
-            return
-
-        u = self._as_function(x[STATE], self.model.Vh_u)
-        m = self._as_function(x[PARAMETER], self.model.prior.Vh)
-        p = self._as_function(x[ADJOINT], self.model.Vh_p)
-
-        checkpoint_file = os.path.join(self.output_dir, f"checkpoint_it{it}.h5")
-        print(f"Saved checkpoint at iteration {it}: {checkpoint_file}")
 
 
 def LS_ParameterList():
@@ -172,6 +131,9 @@ class ReducedSpaceNewtonCG:
         "Maximum backtracking reached for w",         # 4
     ]
 
+    comm = MPI.COMM_WORLD
+    rank = comm.rank
+
     def __init__(
         self, model, parameters=ReducedSpaceNewtonCG_ParameterList(), callback=None
     ):
@@ -183,10 +145,9 @@ class ReducedSpaceNewtonCG:
         Parameters:
         :code:`model` The model object that describes the inverse problem
         :code:`parameters`: (type :code:`ParameterList`, optional) set parameters for inexact Newton CG
-        :code:`callback`: (type callable with signature :code:`callback(it: int, x: list, **kwargs) -> None`)
-                optional callback function to be called at the end of each iteration. The current iterate is passed as
-                :code:`x = [u, m, p]` and additional diagnostics are sent as keyword arguments.
-                Converting vectors to :code:`dolfinx.Function` objects should happen inside the callback implementation.
+        :code:`callback`: (type function handler with signature :code:`callback(it: int, x: list of dl.Vector): --> None`
+                optional callback function to be called at the end of each iteration. Takes as input the iteration number, and
+                the list of vectors for the state, parameter, adjoint.
         """
         self.model = model
         self.parameters = parameters
@@ -215,7 +176,7 @@ class ReducedSpaceNewtonCG:
         if x[ADJOINT] is None:
             x[ADJOINT] = self.model.generate_vector(ADJOINT)
 
-        if type(self.model.prior).__name__ == "PDTV_VariationalRegularization":
+        if type(self.model.prior).__name__ == "PDTV_VariationalRegularisation":
             return self._solve_ls_PDTV(x)
         elif self.parameters["globalization"] == "LS":
             return self._solve_ls(x)
@@ -291,7 +252,7 @@ class ReducedSpaceNewtonCG:
             else:
                 solver.set_preconditioner(self.model.Rsolver())
 
-            solver.solve(mg, mhat)
+            solver.solve(mg_neg, mhat)
             self.total_cg_iter += HessApply.ncalls
 
             alpha = 1.0
@@ -309,8 +270,8 @@ class ReducedSpaceNewtonCG:
                 self.model.solveFwd(x_star[STATE], x_star)
 
                 cost_new, reg_new, misfit_new = self.model.cost(x_star)
-                if (cost_new < cost_old - alpha * c_armijo * mg_mhat) or \
-                   (mg_mhat <= self.parameters["gdm_tolerance"]):
+                if (cost_new < cost_old + alpha * c_armijo * mg_mhat) or \
+                   (-mg_mhat <= self.parameters["gdm_tolerance"]):
                     cost_old = cost_new
                     descent = 1
                     x[PARAMETER].array[:] = x_star[PARAMETER].array
@@ -556,14 +517,14 @@ class ReducedSpaceNewtonCG:
             temp_fun = dlx.fem.Function(self.model.prior.Vh_w)
 
             while descent_w == 0 and n_backtrack_w < max_backtracking_iter:
-                comm = self.model.prior.Vh_w.mesh.comm
+                comm = MPI.COMM_WORLD
                 temp_fun.x.petsc_vec.waxpy(alpha_w, dw.x.petsc_vec, wfun.x.petsc_vec)
                 temp_fun.x.scatter_forward()
 
                 bs = temp_fun.function_space.dofmap.index_map_bs
                 values = temp_fun.x.array.reshape(-1, bs)
                 local_norm_w_max = np.linalg.norm(values, axis=1).max(initial=0.0)
-                global_norm_w_max = comm.allreduce(local_norm_w_max, op=dlx.MPI.MAX)
+                global_norm_w_max = comm.allreduce(local_norm_w_max, op=MPI.MAX)
 
                 if global_norm_w_max <= 1:
                     descent_w = 1
