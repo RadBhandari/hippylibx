@@ -290,7 +290,7 @@ class ReducedSpaceNewtonCG:
                 self.reason = 2
                 break
 
-            if -mg_mhat <= self.parameters["gdm_tolerance"]:
+            if mg_mhat <= self.parameters["gdm_tolerance"]:
                 self.converged = True
                 self.reason = 3
                 break
