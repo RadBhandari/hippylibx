@@ -253,7 +253,6 @@ class ReducedSpaceNewtonCG:
             else:
                 solver.set_preconditioner(self.model.Rsolver())
 
-            mg_neg.array[:] = -mg.array[:]
             solver.solve(mg_neg, mhat)
             self.total_cg_iter += HessApply.ncalls
 
