@@ -172,7 +172,7 @@ class ReducedSpaceNewtonCG:
         if x[ADJOINT] is None:
             x[ADJOINT] = self.model.generate_vector(ADJOINT)
 
-        if type(self.model.prior).__name__ == "PDTV_VariationalRegularisation":
+        if type(self.model.prior).__name__ == "PDTV_VariationalRegularization":
             return self._solve_ls_PDTV(x)
         elif self.parameters["globalization"] == "LS":
             return self._solve_ls(x)
