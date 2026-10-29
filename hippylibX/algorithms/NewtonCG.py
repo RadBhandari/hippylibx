@@ -133,8 +133,7 @@ class ReducedSpaceNewtonCG:
     
 
     def __init__(
-        self, model, parameters=ReducedSpaceNewtonCG_ParameterList(), callback=None
-    ):
+        self, model, parameters=ReducedSpaceNewtonCG_ParameterList()):
         """
         Initialize the ReducedSpaceNewtonCG.
         Type :code:`ReducedSpaceNewtonCG_ParameterList().showMe()` for list of default parameters
@@ -156,8 +155,6 @@ class ReducedSpaceNewtonCG:
         self.ncalls = 0
         self.reason = 0
         self.final_grad_norm = 0
-
-        self.callback = callback
 
     def solve(self, x: list) -> list:
         """
@@ -318,23 +315,6 @@ class ReducedSpaceNewtonCG:
                     )
                 )
 
-            if self.callback:
-                self.callback(
-                    self.it,
-                    x,
-                    cg_it=HessApply.ncalls,
-                    cost=cost_new,
-                    misfit=misfit_new,
-                    reg=reg_new,
-                    gdm=mg_mhat,
-                    gradnorm=gradnorm,
-                    alpha=alpha,
-                    tolcg=tolcg,
-                    fwd_solve=self.model.n_fwd_solve,
-                    adj_solve=self.model.n_adj_solve,
-                    inc_solve=self.model.n_inc_solve,
-                )
-
         self.final_grad_norm = gradnorm
         self.final_cost = cost_new
         HessApply.petsc_wrapper.destroy()
@@ -478,23 +458,6 @@ class ReducedSpaceNewtonCG:
                         alpha,
                         tolcg,
                     )
-                )
-
-            if self.callback:
-                self.callback(
-                    self.it,
-                    x,
-                    cg_it=HessApply.ncalls,
-                    cost=cost_new,
-                    misfit=misfit_new,
-                    reg=reg_new,
-                    gdm=mg_mhat,
-                    gradnorm=gradnorm,
-                    alpha=alpha,
-                    tolcg=tolcg,
-                    fwd_solve=self.model.n_fwd_solve,
-                    adj_solve=self.model.n_adj_solve,
-                    inc_solve=self.model.n_inc_solve,
                 )
 
             alpha_w = 1.0
