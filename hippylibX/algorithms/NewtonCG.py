@@ -130,9 +130,7 @@ class ReducedSpaceNewtonCG:
         "Norm of (g, dm) less than tolerance",  # 3
         "Maximum backtracking reached for w",         # 4
     ]
-
-    comm = MPI.COMM_WORLD
-    rank = comm.rank
+    
 
     def __init__(
         self, model, parameters=ReducedSpaceNewtonCG_ParameterList(), callback=None
@@ -176,7 +174,7 @@ class ReducedSpaceNewtonCG:
         if x[ADJOINT] is None:
             x[ADJOINT] = self.model.generate_vector(ADJOINT)
 
-        if type(self.model.prior).__name__ == "PDTV_VariationalRegularisation":
+        if type(self.model.prior).__name__ == "PDTV_VariationalRegularization":
             return self._solve_ls_PDTV(x)
         elif self.parameters["globalization"] == "LS":
             return self._solve_ls(x)
@@ -517,7 +515,7 @@ class ReducedSpaceNewtonCG:
             temp_fun = dlx.fem.Function(self.model.prior.Vh_w)
 
             while descent_w == 0 and n_backtrack_w < max_backtracking_iter:
-                comm = MPI.COMM_WORLD
+                comm = self.model.prior.Vh.mesh.comm
                 temp_fun.x.petsc_vec.waxpy(alpha_w, dw.x.petsc_vec, wfun.x.petsc_vec)
                 temp_fun.x.scatter_forward()
 
