@@ -250,7 +250,7 @@ class ReducedSpaceNewtonCG:
             else:
                 solver.set_preconditioner(self.model.Rsolver())
 
-            solver.solve(mg_neg, mhat)
+            solver.solve(mg, mhat)
             self.total_cg_iter += HessApply.ncalls
 
             alpha = 1.0
@@ -268,8 +268,8 @@ class ReducedSpaceNewtonCG:
                 self.model.solveFwd(x_star[STATE], x_star)
 
                 cost_new, reg_new, misfit_new = self.model.cost(x_star)
-                if (cost_new < cost_old + alpha * c_armijo * mg_mhat) or \
-                   (-mg_mhat <= self.parameters["gdm_tolerance"]):
+                if (cost_new < cost_old - alpha * c_armijo * mg_mhat) or \
+                   (mg_mhat <= self.parameters["gdm_tolerance"]):
                     cost_old = cost_new
                     descent = 1
                     x[PARAMETER].array[:] = x_star[PARAMETER].array
@@ -364,7 +364,6 @@ class ReducedSpaceNewtonCG:
 
         mhat = self.model.generate_vector(PARAMETER)
         mg = self.model.generate_vector(PARAMETER)
-        mg_neg = self.model.generate_vector(PARAMETER)
 
         x_star = [None, None, None] + x[3::]
         x_star[STATE] = self.model.generate_vector(STATE)
@@ -414,8 +413,7 @@ class ReducedSpaceNewtonCG:
                 solver.set_preconditioner(self.model.Rsolver())
             solver.parameters["rel_tolerance"] = tolcg
 
-            mg_neg.array[:] = -mg.array[:]
-            solver.solve(mg_neg, mhat)
+            solver.solve(mg, mhat)
             self.total_cg_iter += HessApply.ncalls
             alpha = 1.0
             descent = 0
@@ -423,7 +421,7 @@ class ReducedSpaceNewtonCG:
             mg_mhat = inner(mg, mhat)
 
             while descent == 0 and n_backtrack < max_backtracking_iter:
-                x_star[PARAMETER].array[:] = x[PARAMETER].array + alpha * mhat.array
+                x_star[PARAMETER].array[:] = x[PARAMETER].array - alpha * mhat.array
                 x_star[PARAMETER].scatter_forward()
                 x_star[STATE].array[:] = x[STATE].array
                 x_star[STATE].scatter_forward()
@@ -431,8 +429,8 @@ class ReducedSpaceNewtonCG:
                 self.model.solveFwd(x_star[STATE], x_star)
 
                 cost_new, reg_new, misfit_new = self.model.cost(x_star)
-                if (cost_new < cost_old + alpha * c_armijo * mg_mhat) or \
-                   (-mg_mhat <= self.parameters["gdm_tolerance"]):
+                if (cost_new < cost_old - alpha * c_armijo * mg_mhat) or \
+                   (mg_mhat <= self.parameters["gdm_tolerance"]):
                     cost_old = cost_new
                     descent = 1
                     x[PARAMETER].array[:] = x_star[PARAMETER].array
@@ -447,7 +445,7 @@ class ReducedSpaceNewtonCG:
                 self.converged = False
                 self.reason = 2
                 break
-            if -mg_mhat <= self.parameters["gdm_tolerance"]:
+            if mg_mhat <= self.parameters["gdm_tolerance"]:
                 self.converged = True
                 self.reason = 3
                 break
